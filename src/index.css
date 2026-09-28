@@ -1,0 +1,102 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #F8FAFC;
+}
+
+/* Safe area support for mobile devices */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
+}
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top, 0px), 12px);
+}
+
+/* Remove Leaflet default icon box styling */
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.08) !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+}
+
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  color: #334155 !important;
+  border: none !important;
+  width: 36px !important;
+  height: 36px !important;
+  line-height: 36px !important;
+  font-size: 16px !important;
+  transition: all 0.15s ease !important;
+}
+
+.leaflet-control-zoom-in:hover,
+.leaflet-control-zoom-out:hover {
+  background-color: rgba(255, 255, 255, 1) !important;
+  color: #0F172A !important;
+}
+
+/* Device Marker 34px Breathing Animation */
+@keyframes yimly-breathe {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  }
+}
+
+.yimly-device-breathing {
+  animation: yimly-breathe 2.5s ease-in-out infinite;
+}
+
+/* Selected Member Pulsing Ring */
+@keyframes yimly-selected-glow {
+  0% {
+    box-shadow: 0 0 0 0 var(--member-color-glow, rgba(123, 201, 255, 0.7));
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(123, 201, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(123, 201, 255, 0);
+  }
+}
+
+.yimly-selected-pulse {
+  animation: yimly-selected-glow 2s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}

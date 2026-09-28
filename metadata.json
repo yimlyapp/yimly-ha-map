@@ -1,0 +1,6 @@
+{
+  "name": "Yimly HA Map",
+  "description": "Custom family location map experience built around Home Assistant Core with live member tracking, edge markers, and real-time updates.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
