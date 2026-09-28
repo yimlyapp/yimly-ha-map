@@ -8,12 +8,9 @@ import {
   Bell,
   ChevronDown,
   ChevronUp,
-  Check,
-  Copy,
-  LogOut,
-  ShieldCheck,
-  ExternalLink,
   Home,
+  ShieldCheck,
+  Check,
 } from 'lucide-react';
 import {
   HassUser,
@@ -24,7 +21,6 @@ import {
   ConnectionStatus,
 } from '../../types/ha.ts';
 import { MAP_STYLES } from '../../utils/map-styles.ts';
-import { getHaPanelConfigYaml, getHaPanelJsCode } from '../../services/ha-panel-export.ts';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -53,9 +49,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onChangeMapStyle,
   preferences,
   onUpdatePreferences,
-  connectionStatus,
-  haUrl,
-  onLogout,
   onPingDevice,
   onOpenCircleModal,
 }) => {
@@ -69,28 +62,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     ha: false,
   });
 
-  const [copiedYaml, setCopiedYaml] = useState(false);
-  const [copiedJs, setCopiedJs] = useState(false);
   const [pingStatus, setPingStatus] = useState<Record<string, string>>({});
 
   if (!isOpen) return null;
 
   const toggleSection = (section: string) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  const appUrl = typeof window !== 'undefined' ? window.location.origin : '';
-
-  const handleCopyYaml = () => {
-    navigator.clipboard.writeText(getHaPanelConfigYaml(appUrl));
-    setCopiedYaml(true);
-    setTimeout(() => setCopiedYaml(false), 2000);
-  };
-
-  const handleCopyJs = () => {
-    navigator.clipboard.writeText(getHaPanelJsCode(appUrl));
-    setCopiedJs(true);
-    setTimeout(() => setCopiedJs(false), 2000);
   };
 
   const handlePing = async (trackerId: string) => {
@@ -198,16 +175,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </span>
                     )}
                   </div>
-                </div>
-
-                <div className="pt-1">
-                  <button
-                    onClick={onLogout}
-                    className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer"
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    <span>Disconnect HA Session</span>
-                  </button>
                 </div>
               </div>
             )}
@@ -455,7 +422,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
-          {/* 6. HOME ASSISTANT INTEGRATION CARD */}
+          {/* 6. LOVELACE CUSTOM CARD STATUS */}
           <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-2xs">
             <button
               onClick={() => toggleSection('ha')}
@@ -463,7 +430,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Home className="h-4 w-4 text-slate-700" />
-                <span className="text-xs uppercase tracking-wider font-bold">HA Custom Panel Integration</span>
+                <span className="text-xs uppercase tracking-wider font-bold">Lovelace Card Info</span>
               </div>
               {openSections.ha ? (
                 <ChevronUp className="h-4 w-4 text-slate-400" />
@@ -474,33 +441,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {openSections.ha && (
               <div className="border-t border-slate-100 p-4 pt-3 space-y-3 bg-slate-50/40 text-xs animate-in fade-in duration-150">
-                <div className="rounded-xl bg-white p-3 border border-slate-200/60 space-y-1">
+                <div className="rounded-xl bg-white p-3 border border-slate-200/60 space-y-2">
                   <div className="flex items-center justify-between text-slate-700">
-                    <span className="font-semibold">HA Instance</span>
-                    <span className="font-mono text-[11px] text-slate-900">{haUrl}</span>
+                    <span className="font-semibold">Card Type</span>
+                    <span className="font-mono text-[11px] text-slate-900 font-bold">custom:yimly-ha-map</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 font-medium">
+                  <div className="flex items-center justify-between text-slate-700">
+                    <span className="font-semibold">HA User</span>
+                    <span className="font-medium text-[11px] text-slate-900">{currentUser?.name || 'Home Assistant User'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 font-medium pt-1 border-t border-slate-100">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                    <span>Real-time WebSocket & authenticated session</span>
+                    <span>Native Home Assistant hass lifecycle active</span>
                   </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-[10px] uppercase tracking-wider text-slate-500">
-                      configuration.yaml snippet
-                    </span>
-                    <button
-                      onClick={handleCopyYaml}
-                      className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer"
-                    >
-                      {copiedYaml ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
-                      <span>{copiedYaml ? 'Copied' : 'Copy'}</span>
-                    </button>
-                  </div>
-                  <pre className="rounded-xl bg-slate-900 p-2.5 text-[10px] font-mono text-slate-200 overflow-x-auto">
-                    {getHaPanelConfigYaml(appUrl)}
-                  </pre>
                 </div>
               </div>
             )}

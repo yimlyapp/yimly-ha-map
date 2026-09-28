@@ -44,7 +44,7 @@ export const CircleModal: React.FC<CircleModalProps> = ({
   const [tab, setTab] = useState<'members' | 'create' | 'join'>('members');
   const [newCircleName, setNewCircleName] = useState('My Family');
   const [selectedPersonId, setSelectedPersonId] = useState(
-    currentPersonId || haPersons[0]?.entity_id || ''
+    currentPersonId || (haPersons.length > 0 ? (haPersons.find(p => p.entity_id === currentPersonId)?.entity_id || '') : '')
   );
   const [selectedColor, setSelectedColor] = useState(DEFAULT_MEMBER_COLOR);
   const [joinCodeInput, setJoinCodeInput] = useState('');
@@ -76,10 +76,10 @@ export const CircleModal: React.FC<CircleModalProps> = ({
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCircleName.trim()) return;
-    const person = haPersons.find((p) => p.entity_id === selectedPersonId) || haPersons[0];
+    const person = haPersons.find((p) => p.entity_id === selectedPersonId);
     onCreateCircle(
       newCircleName.trim(),
-      person ? person.entity_id : 'person.user',
+      person ? person.entity_id : (selectedPersonId || 'person.user'),
       selectedColor
     );
     setTab('members');

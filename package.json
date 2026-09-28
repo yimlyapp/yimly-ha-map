@@ -1,11 +1,20 @@
 {
-  "name": "react-example",
-  "private": true,
-  "version": "0.0.0",
+  "name": "yimly-ha-map",
+  "version": "1.0.0",
+  "description": "Home Assistant Lovelace custom card for live family location tracking with directional edge markers",
+  "author": "Yimly (https://github.com/yimlyapp)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yimlyapp/yimly-ha-map.git"
+  },
+  "main": "dist/yimly-ha-map.js",
+  "module": "dist/yimly-ha-map.js",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --platform=node --format=esm --target=node22 --outfile=server.js --bundle --packages=external",
+    "build:card": "vite build --config vite.card.config.ts",
+    "build": "vite build && vite build --config vite.card.config.ts && esbuild server.ts --platform=node --format=esm --target=node22 --outfile=server.js --bundle --packages=external",
     "start": "node server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

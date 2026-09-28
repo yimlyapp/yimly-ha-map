@@ -17,10 +17,15 @@ interface FamilyMapProps {
   entities: Record<string, HassEntity>;
   selectedMemberId: string | null;
   onSelectMember: (memberId: string | null) => void;
+  onSelectDevice?: (deviceId: string) => void;
   mapStyle: MapStyleId;
   onChangeMapStyle: (style: MapStyleId) => void;
+  showAccuracyCircles?: boolean;
+  showZones?: boolean;
+  showPrivateDevices?: boolean;
+  isFollowing?: boolean;
   followPaused: boolean;
-  onFollowResume: () => void;
+  onFollowResume?: () => void;
   onUserManualPan: () => void;
   haUrl: string;
 }
@@ -30,8 +35,13 @@ export const FamilyMap: React.FC<FamilyMapProps> = ({
   entities,
   selectedMemberId,
   onSelectMember,
+  onSelectDevice,
   mapStyle,
   onChangeMapStyle,
+  showAccuracyCircles = true,
+  showZones = true,
+  showPrivateDevices = true,
+  isFollowing = true,
   followPaused,
   onFollowResume,
   onUserManualPan,
@@ -93,7 +103,19 @@ export const FamilyMap: React.FC<FamilyMapProps> = ({
       isProgrammaticMoveRef.current = false;
     });
 
+    // ResizeObserver to handle Lovelace layout changes smoothly
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       map.remove();
       mapRef.current = null;
     };
@@ -425,7 +447,7 @@ export const FamilyMap: React.FC<FamilyMapProps> = ({
   // Action: Select target from edge marker & fly to real location
   const handleSelectFromEdge = (targetId: string, lat: number, lng: number) => {
     onSelectMember(targetId);
-    onFollowResume();
+    onFollowResume?.();
     if (mapRef.current) {
       isProgrammaticMoveRef.current = true;
       mapRef.current.flyTo([lat, lng], Math.max(mapRef.current.getZoom(), 16), {

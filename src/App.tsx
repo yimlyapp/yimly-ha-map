@@ -1,423 +1,194 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  CircleMember,
-  ConnectionStatus,
-  FamilyCircle,
-  HassEntity,
-  HassUser,
-  MapStyleId,
-  PersonEntity,
-  DeviceTrackerEntity,
-} from './types/ha.ts';
-import { HaConnectionService, HA_DEFAULT_URL } from './services/ha-connection.ts';
-import { YimlyStorage } from './services/yimly-storage.ts';
-import { PASTEL_RAINBOW_COLORS, DEFAULT_MEMBER_COLOR } from './utils/colors.ts';
-import { FamilyMap } from './components/Map/FamilyMap.tsx';
-import { TopBar } from './components/UI/TopBar.tsx';
-import { SelectedUserCard } from './components/UI/SelectedUserCard.tsx';
-import { CircleModal } from './components/UI/CircleModal.tsx';
-import { SettingsModal } from './components/UI/SettingsModal.tsx';
-import { HaAuthModal } from './components/UI/HaAuthModal.tsx';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
+import './yimly-ha-map-card.ts';
+import { HomeAssistant, HassEntity, HassUser, YimlyCardConfig } from './types/ha.ts';
+import { LayoutDashboard, Sliders, Layers, Eye, RefreshCw } from 'lucide-react';
 
 export default function App() {
-  const haService = useMemo(() => HaConnectionService.getInstance(), []);
-
-  // HA State
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(haService.getStatus());
-  const [statusMessage, setStatusMessage] = useState<string>('');
   const [entities, setEntities] = useState<Record<string, HassEntity>>({});
-  const [currentUser, setCurrentUser] = useState<HassUser | null>(haService.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<HassUser>({
+    id: 'ha_user_main',
+    name: 'Home Assistant User',
+    is_owner: true,
+    is_admin: true,
+  });
+  const [cardHeight, setCardHeight] = useState<string>('540px');
+  const [activeStyle, setActiveStyle] = useState<'osm' | 'positron' | 'bright' | 'liberty' | 'dark' | 'fiord'>('osm');
+  const [dashboardView, setDashboardView] = useState<'card' | 'panel'>('card');
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
 
-  // Yimly Circle & Preferences State (Non-sensitive persistence)
-  const [circle, setCircle] = useState<FamilyCircle | null>(() => YimlyStorage.getCircle());
-  const [preferences, setPreferences] = useState(() => YimlyStorage.getPreferences());
+  // Home Assistant Object construction
+  const hassObject = useMemo<HomeAssistant>(() => {
+    return {
+      states: entities,
+      user: currentUser,
+      language: 'en',
+      callService: async (domain: string, service: string, serviceData?: Record<string, unknown>) => {
+        console.log(`[HA Lovelace Service Call] ${domain}.${service}`, serviceData);
+        try {
+          const res = await fetch('/api/ha/service', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain, service, serviceData }),
+          });
+          if (res.ok) return await res.json();
+        } catch {
+          // Dev preview fallback
+        }
+        return { success: true };
+      },
+    };
+  }, [entities, currentUser]);
 
-  // Selection & Live Follow State
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [isFollowing, setIsFollowing] = useState(true);
-  const [followPaused, setFollowPaused] = useState(false);
-
-  // Modals
-  const [circleModalOpen, setCircleModalOpen] = useState(false);
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-
-  // Home Assistant Connection & Subscriptions
+  // Connect to live Home Assistant backend stream if available
   useEffect(() => {
-    // 1. Connection status listener
-    const unsubscribeStatus = haService.onStatusChange((status, message) => {
-      setConnectionStatus(status);
-      if (message) setStatusMessage(message);
-      // Close modal once connected
-      if (status === 'connected') {
-        setAuthModalOpen(false);
+    let eventSource: EventSource | null = null;
+
+    async function bootstrap() {
+      try {
+        const res = await fetch('/api/ha/bootstrap');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated && data.states && Object.keys(data.states).length > 0) {
+            setEntities(data.states);
+            if (data.user) setCurrentUser(data.user);
+            setIsLiveConnected(true);
+
+            eventSource = new EventSource('/api/ha/events');
+            eventSource.onmessage = (event) => {
+              try {
+                const payload = JSON.parse(event.data);
+                if (payload.type === 'init' && payload.states) {
+                  setEntities(payload.states);
+                  if (payload.user) setCurrentUser(payload.user);
+                } else if (payload.type === 'state_changed' && payload.entity) {
+                  setEntities((prev) => ({
+                    ...prev,
+                    [payload.entity.entity_id]: payload.entity,
+                  }));
+                }
+              } catch (e) {
+                console.error('Error in SSE parsing', e);
+              }
+            };
+          }
+        }
+      } catch {
+        // Dev offline preview
       }
-    });
+    }
 
-    // 2. Entities bulk loaded listener
-    const unsubscribeEntities = haService.onEntitiesLoaded((newEntities) => {
-      setEntities({ ...newEntities });
-      setCurrentUser(haService.getCurrentUser());
-    });
-
-    // 3. Real-time individual state change listener
-    const unsubscribeStateChange = haService.onStateChange((entity) => {
-      setEntities((prev) => ({
-        ...prev,
-        [entity.entity_id]: entity,
-      }));
-    });
-
-    // 4. Listen for postMessage from Home Assistant custom panel
-    const handleParentMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'ha-init' || event.data?.type === 'ha-state-changed') {
-        setAuthModalOpen(false);
-      }
-    };
-    window.addEventListener('message', handleParentMessage);
-
-    // Initial check: if running inside HA or callback code in URL
-    const initConnection = async () => {
-      // 1. Perform handshake with parent frame (identifies if inside HA custom panel)
-      const isEmbedded = await haService.startHandshake();
-      if (isEmbedded) {
-        // Running inside Home Assistant custom panel: native session will be reused
-        setAuthModalOpen(false);
-        return;
-      }
-
-      // 2. Check if URL has ?code= from HA OAuth redirect callback
-      const hasCode = await haService.handleAuthCallback();
-      if (hasCode) {
-        setAuthModalOpen(false);
-        return;
-      }
-
-      // 3. In standalone preview mode, trigger connect check
-      await haService.connect();
-    };
-    initConnection();
+    bootstrap();
 
     return () => {
-      unsubscribeStatus();
-      unsubscribeEntities();
-      unsubscribeStateChange();
-      window.removeEventListener('message', handleParentMessage);
+      if (eventSource) eventSource.close();
     };
-  }, [haService]);
-
-  // HA Entities helpers (discovered dynamically from Home Assistant state)
-  const haPersons: PersonEntity[] = useMemo(() => {
-    return Object.values(entities).filter(
-      (e): e is PersonEntity => e.entity_id.startsWith('person.')
-    );
-  }, [entities]);
-
-  const haDeviceTrackers: DeviceTrackerEntity[] = useMemo(() => {
-    return Object.values(entities).filter(
-      (e): e is DeviceTrackerEntity => e.entity_id.startsWith('device_tracker.')
-    );
-  }, [entities]);
-
-  // Current Person strictly matching authenticated HA user (NEVER falls back to first person)
-  const currentPerson = useMemo(() => {
-    return haService.findCurrentPerson();
-  }, [haService, entities, currentUser]);
-
-  // Synchronize Circle with HA persons dynamically when connected
-  useEffect(() => {
-    if (connectionStatus === 'connected' && haPersons.length > 0) {
-      if (!circle) {
-        // Bootstrap Family Circle strictly using authenticated user's person (if identified)
-        const myPersonId = currentPerson?.entity_id;
-        const newCode = `YIM-${Math.floor(100 + Math.random() * 900)}`;
-
-        const initialMembers: CircleMember[] = haPersons.map((p, idx) => {
-          // Only true if this person actually belongs to the authenticated HA user
-          const isSelf = myPersonId ? p.entity_id === myPersonId : false;
-          const color = PASTEL_RAINBOW_COLORS[idx % PASTEL_RAINBOW_COLORS.length].hex;
-          return {
-            id: p.entity_id,
-            ha_person_id: p.entity_id,
-            display_name: p.attributes.friendly_name || p.entity_id.replace('person.', ''),
-            color,
-            is_self: isSelf,
-            added_at: new Date().toISOString(),
-          };
-        });
-
-        const newCircle: FamilyCircle = {
-          id: `circle_${Date.now()}`,
-          name: 'Home Circle',
-          code: newCode,
-          created_at: new Date().toISOString(),
-          members: initialMembers,
-        };
-
-        setCircle(newCircle);
-        YimlyStorage.saveCircle(newCircle);
-      }
-    }
-  }, [connectionStatus, haPersons, currentPerson, circle]);
-
-  // Active circle members
-  const circleMembers = useMemo(() => {
-    return circle?.members || [];
-  }, [circle]);
-
-  // Selected member details
-  const selectedMember = useMemo(() => {
-    return circleMembers.find((m) => m.id === selectedMemberId);
-  }, [circleMembers, selectedMemberId]);
-
-  // Handle member selection
-  const handleSelectMember = useCallback(
-    (memberId: string | null) => {
-      setSelectedMemberId(memberId);
-      if (memberId) {
-        setIsFollowing(true);
-        setFollowPaused(false);
-      }
-    },
-    []
-  );
-
-  // Resume follow mode
-  const handleResumeFollow = useCallback(() => {
-    setFollowPaused(false);
-    setIsFollowing(true);
   }, []);
 
-  // When user manually pans or zooms the map, suspend live follow
-  const handleUserManualPan = useCallback(() => {
-    if (selectedMemberId && isFollowing && !followPaused) {
-      setFollowPaused(true);
+  // Card reference to pass hass and config
+  const cardRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const cardEl = cardRef.current as any;
+    if (!cardEl) return;
+
+    const config: YimlyCardConfig = {
+      type: 'custom:yimly-ha-map',
+      height: dashboardView === 'panel' ? 'calc(100vh - 120px)' : cardHeight,
+      map_style: activeStyle,
+    };
+
+    if (typeof cardEl.setConfig === 'function') {
+      cardEl.setConfig(config);
     }
-  }, [selectedMemberId, isFollowing, followPaused]);
-
-  // Preferences update
-  const handleUpdatePreferences = (newPrefs: Partial<typeof preferences>) => {
-    const updated = YimlyStorage.savePreferences(newPrefs);
-    setPreferences(updated);
-  };
-
-  // Map style update
-  const handleChangeMapStyle = (style: MapStyleId) => {
-    handleUpdatePreferences({ mapStyle: style });
-  };
-
-  // Circle actions
-  const handleCreateCircle = (name: string, memberPersonId: string, color: string) => {
-    const code = `YIM-${Math.floor(100 + Math.random() * 900)}`;
-    const person = haPersons.find((p) => p.entity_id === memberPersonId);
-    const isSelf = currentPerson ? memberPersonId === currentPerson.entity_id : false;
-    const newCircle: FamilyCircle = {
-      id: `circle_${Date.now()}`,
-      name,
-      code,
-      created_at: new Date().toISOString(),
-      members: [
-        {
-          id: memberPersonId,
-          ha_person_id: memberPersonId,
-          display_name: person?.attributes.friendly_name || memberPersonId.replace('person.', ''),
-          color,
-          is_self: isSelf,
-          added_at: new Date().toISOString(),
-        },
-      ],
-    };
-    setCircle(newCircle);
-    YimlyStorage.saveCircle(newCircle);
-  };
-
-  const handleJoinCircle = (code: string) => {
-    const myPerson = currentPerson;
-    const newCircle: FamilyCircle = {
-      id: `circle_${Date.now()}`,
-      name: `Circle ${code}`,
-      code,
-      created_at: new Date().toISOString(),
-      members: myPerson
-        ? [
-            {
-              id: myPerson.entity_id,
-              ha_person_id: myPerson.entity_id,
-              display_name: myPerson.attributes.friendly_name || 'Me',
-              color: DEFAULT_MEMBER_COLOR,
-              is_self: true,
-              added_at: new Date().toISOString(),
-            },
-          ]
-        : [],
-    };
-    setCircle(newCircle);
-    YimlyStorage.saveCircle(newCircle);
-  };
-
-  const handleLeaveCircle = () => {
-    setCircle(null);
-    YimlyStorage.saveCircle(null);
-    setSelectedMemberId(null);
-  };
-
-  const handleAddMemberToCircle = (personId: string, displayName: string, color: string) => {
-    if (!circle) return;
-    const isSelf = currentPerson ? personId === currentPerson.entity_id : false;
-    const newMember: CircleMember = {
-      id: personId,
-      ha_person_id: personId,
-      display_name: displayName,
-      color,
-      is_self: isSelf,
-      added_at: new Date().toISOString(),
-    };
-    const updated: FamilyCircle = {
-      ...circle,
-      members: [...circle.members, newMember],
-    };
-    setCircle(updated);
-    YimlyStorage.saveCircle(updated);
-  };
-
-  const handleRemoveMemberFromCircle = (memberId: string) => {
-    if (!circle) return;
-    const updated: FamilyCircle = {
-      ...circle,
-      members: circle.members.filter((m) => m.id !== memberId),
-    };
-    setCircle(updated);
-    YimlyStorage.saveCircle(updated);
-    if (selectedMemberId === memberId) {
-      setSelectedMemberId(null);
-    }
-  };
-
-  const handleUpdateMemberColor = (memberId: string, color: string) => {
-    if (!circle) return;
-    const updated: FamilyCircle = {
-      ...circle,
-      members: circle.members.map((m) => (m.id === memberId ? { ...m, color } : m)),
-    };
-    setCircle(updated);
-    YimlyStorage.saveCircle(updated);
-  };
-
-  // Home Assistant Service Call: Ping device
-  const handlePingDevice = async (trackerEntityId: string) => {
-    const tracker = entities[trackerEntityId];
-    const friendlyName = tracker?.attributes?.friendly_name || trackerEntityId;
-    await haService.callService('persistent_notification', 'create', {
-      title: 'Yimly Device Ping',
-      message: `Ping request received for ${friendlyName} from Yimly HA Map.`,
-      notification_id: `yimly_ping_${Date.now()}`,
-    });
-  };
+    cardEl.hass = hassObject;
+  }, [hassObject, cardHeight, activeStyle, dashboardView]);
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden select-none bg-slate-100 font-sans">
-      {/* Top Bar with Family Circle pill and Settings gear */}
-      <TopBar
-        circle={circle}
-        onOpenCircleModal={() => setCircleModalOpen(true)}
-        onOpenSettingsModal={() => setSettingsModalOpen(true)}
-        followPaused={followPaused}
-        selectedMemberName={selectedMember?.display_name}
-        onResumeFollow={handleResumeFollow}
-        connectionStatus={connectionStatus}
-        onReconnect={() => haService.connect()}
-      />
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-slate-900 text-slate-100 font-sans">
+      {/* Top Lovelace Test Harness Bar */}
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/80 px-4 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-bold text-sm tracking-tight text-white">Yimly HA Map</span>
+          </div>
+          <span className="rounded-md bg-slate-800 px-2 py-0.5 text-[11px] font-mono text-indigo-300 border border-slate-700">
+            type: custom:yimly-ha-map
+          </span>
+        </div>
 
-      {/* Real Full-Screen Family Map */}
-      <FamilyMap
-        members={circleMembers}
-        entities={entities}
-        selectedMemberId={selectedMemberId}
-        onSelectMember={handleSelectMember}
-        mapStyle={preferences.mapStyle}
-        onChangeMapStyle={handleChangeMapStyle}
-        followPaused={followPaused}
-        onFollowResume={handleResumeFollow}
-        onUserManualPan={handleUserManualPan}
-        haUrl={HA_DEFAULT_URL}
-      />
+        {/* Dashboard View & Sizing Switcher */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-xl border border-slate-700/60 text-xs">
+            <button
+              onClick={() => setDashboardView('card')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                dashboardView === 'card' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Card View (Lovelace Grid)
+            </button>
+            <button
+              onClick={() => setDashboardView('panel')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                dashboardView === 'panel' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Panel View (Full Screen)
+            </button>
+          </div>
 
-      {/* Selected User Info Card (Collapsible bottom frosted sheet) */}
-      <SelectedUserCard
-        selectedId={selectedMemberId}
-        members={circleMembers}
-        entities={entities}
-        isCurrentUser={selectedMember?.is_self ?? false}
-        isFollowing={isFollowing}
-        followPaused={followPaused}
-        onToggleFollow={() => {
-          if (isFollowing && !followPaused) {
-            setIsFollowing(false);
-          } else {
-            setIsFollowing(true);
-            setFollowPaused(false);
-          }
-        }}
-        onRecenter={() => {
-          setFollowPaused(false);
-          setIsFollowing(true);
-        }}
-        onClose={() => setSelectedMemberId(null)}
-        onPingDevice={handlePingDevice}
-      />
+          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400">
+            <span>Height:</span>
+            <select
+              value={cardHeight}
+              onChange={(e) => setCardHeight(e.target.value)}
+              className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200 text-xs focus:outline-none"
+            >
+              <option value="420px">420px (Compact)</option>
+              <option value="540px">540px (Standard)</option>
+              <option value="680px">680px (Large)</option>
+            </select>
+          </div>
+        </div>
+      </header>
 
-      {/* Circle Modal */}
-      <CircleModal
-        isOpen={circleModalOpen}
-        onClose={() => setCircleModalOpen(false)}
-        circle={circle}
-        haPersons={haPersons}
-        onCreateCircle={handleCreateCircle}
-        onJoinCircle={handleJoinCircle}
-        onLeaveCircle={handleLeaveCircle}
-        onAddMember={handleAddMemberToCircle}
-        onRemoveMember={handleRemoveMemberFromCircle}
-        onUpdateMemberColor={handleUpdateMemberColor}
-        currentPersonId={currentPerson?.entity_id}
-      />
+      {/* Main Dashboard Canvas */}
+      <main className="flex-1 overflow-auto bg-slate-900/60 p-3 sm:p-6 flex flex-col items-center justify-start">
+        <div
+          className={`w-full transition-all duration-200 ${
+            dashboardView === 'panel' ? 'max-w-full h-full' : 'max-w-4xl'
+          }`}
+        >
+          {/* Lovelace Card Container */}
+          <div className="relative w-full rounded-3xl overflow-hidden shadow-2xl border border-slate-700/50 bg-slate-950">
+            {/* Custom Lovelace Card Web Component Instance */}
+            {React.createElement('yimly-ha-map', {
+              ref: cardRef,
+              style: {
+                display: 'block',
+                width: '100%',
+                height: dashboardView === 'panel' ? 'calc(100vh - 120px)' : cardHeight,
+              },
+            })}
+          </div>
 
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={settingsModalOpen}
-        onClose={() => setSettingsModalOpen(false)}
-        currentUser={currentUser}
-        currentPerson={currentPerson}
-        deviceTrackers={haDeviceTrackers}
-        mapStyle={preferences.mapStyle}
-        onChangeMapStyle={handleChangeMapStyle}
-        preferences={preferences}
-        onUpdatePreferences={handleUpdatePreferences}
-        connectionStatus={connectionStatus}
-        haUrl={HA_DEFAULT_URL}
-        onLogout={() => {
-          haService.logout();
-          setSettingsModalOpen(false);
-          if (!haService.isEmbedded()) {
-            setAuthModalOpen(true);
-          }
-        }}
-        onPingDevice={handlePingDevice}
-        onOpenCircleModal={() => setCircleModalOpen(true)}
-      />
-
-      {/* Home Assistant Authentication Modal (Standalone Mode only) */}
-      <HaAuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-        onStartOAuth={() => haService.startOAuthLogin()}
-        onConnectToken={async (token, url) => {
-          await haService.connectWithToken(token, url);
-          setAuthModalOpen(false);
-        }}
-        statusMessage={statusMessage}
-        isConnecting={connectionStatus === 'connecting'}
-        isEmbeddedInHa={haService.isEmbedded()}
-      />
+          {/* Lovelace Dashboard YAML Snippet Helper */}
+          {dashboardView === 'card' && (
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-400 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <span className="font-semibold text-slate-300">Lovelace Dashboard YAML Configuration:</span>
+                <pre className="mt-1 font-mono text-[11px] text-indigo-300 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800 inline-block">
+                  type: custom:yimly-ha-map
+                </pre>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                HACS Custom Card • Home Assistant Native Lovelace Lifecycle
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

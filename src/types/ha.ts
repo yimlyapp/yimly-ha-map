@@ -103,11 +103,33 @@ export interface YimlyPreferences {
   autoFollowZoom: number;
 }
 
-export interface HaSessionData {
-  access_token: string;
-  refresh_token?: string;
-  expires_at?: number;
-  ha_url: string;
-  user?: HassUser;
-  mode: 'oauth' | 'token' | 'panel_context';
+export interface HomeAssistant {
+  states: Record<string, HassEntity>;
+  user: HassUser;
+  language?: string;
+  locale?: Record<string, unknown>;
+  themes?: Record<string, unknown>;
+  selectedTheme?: string | null;
+  callService: (
+    domain: string,
+    service: string,
+    serviceData?: Record<string, unknown>
+  ) => Promise<unknown>;
+  [key: string]: unknown;
+}
+
+export interface LovelaceCardConfig {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface YimlyCardConfig extends LovelaceCardConfig {
+  type: string;
+  title?: string;
+  height?: string | number;
+  default_zoom?: number;
+  map_style?: MapStyleId;
+  show_zones?: boolean;
+  show_devices?: boolean;
+  show_accuracy?: boolean;
 }
